@@ -42,7 +42,6 @@ bool pdg::SharedDataAnalysis::runOnModule(llvm::Module &M)
     dumpSharedTypes("boundaryFiles/shared_struct_types");
   // printPingPongCalls(M);
   // collect shared fields detail access stats
-
   errs() << "Shared fields computation finished\n";
   return false;
 }

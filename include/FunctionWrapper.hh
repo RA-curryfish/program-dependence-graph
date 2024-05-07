@@ -45,6 +45,8 @@ namespace pdg
     bool hasNullRetVal() { return (_retValFormalInTree == nullptr); }
     std::set<llvm::Value *> computeAddrVarDerivedFromArg(llvm::Argument &arg);
     int getArgIdxByFormalInTree(Tree* tree);
+    void setControlDepBuilt() { hasControlDep = true; }
+    bool hasControlDepBuilt() { return hasControlDep; }
 
   private:
     Node *_entryNode;
@@ -61,6 +63,7 @@ namespace pdg
     std::map<llvm::Argument *, Tree *> _argFormalOutTreeMap;
     Tree *_retValFormalInTree;
     Tree *_retValFormalOutTree;
+    bool hasControlDep= false;
 
   };
 } // namespace pdg

@@ -15,12 +15,13 @@ bool pdg::DEBUG;
 void pdg::ProgramDependencyGraph::getAnalysisUsage(AnalysisUsage &AU) const
 {
   AU.addRequired<DataDependencyGraph>();
-  AU.addRequired<ControlDependencyGraph>();
+  // AU.addRequired<ControlDependencyGraph>();
   AU.setPreservesAll();
 }
 
 bool pdg::ProgramDependencyGraph::runOnModule(Module &M)
 {
+  errs() << "Start building PDG\n";
   _module = &M;
   _PDG = &ProgramGraph::getInstance();
 
@@ -47,9 +48,10 @@ bool pdg::ProgramDependencyGraph::runOnModule(Module &M)
   }
 
   unsigned func_size = 0;
-  for (auto &F : M)
+  for (auto f : _PDG->funcToBuild)
   {
-    if (F.isDeclaration())
+    Function &F = *f;
+    if (F.isDeclaration() || !_PDG->hasFuncWrapper(F))
       continue;
     // if (!call_g.isBuildFuncNode(F))
     //   continue;
@@ -58,22 +60,23 @@ bool pdg::ProgramDependencyGraph::runOnModule(Module &M)
     // this is a simplification from caller's formal tree to call site actual trees
     // we use this to quickly reach from formal tree to any parameter pass to 
     // callees through parameter_in edge
-    connectFormalInTreeWithActualTree(F);
+    // connectFormalInTreeWithActualTree(F);
     func_size++;
   }
 
   // errs() << "connecting interproc addrvar\n";
-  for (auto &F : M)
-  {
-    if (F.isDeclaration())
-      continue;
-    // if (!call_g.isBuildFuncNode(F))
-    //   continue;
-    connectAddrVarsReachableFromInterprocFlow(F);
-    // connectInterprocDependencies(F);
-    connectFormalInTreeWithActualTree(F);
-    // connectIntraprocDependencies(F);
-  }
+  // for (auto &F : M)
+  // {
+  //   // if (F.isDeclaration())
+  //   if (F.isDeclaration() || !_PDG->hasFuncWrapper(F))
+  //     continue;
+  //   // if (!call_g.isBuildFuncNode(F))
+  //   //   continue;
+  //   connectAddrVarsReachableFromInterprocFlow(F);
+  //   // connectInterprocDependencies(F);
+  //   connectFormalInTreeWithActualTree(F);
+  //   // connectIntraprocDependencies(F);
+  // }
   errs() << "func size: " << func_size << "\n";
   errs() << "PDG Node size: " << _PDG->numNode() << "\n";
   return false;
@@ -203,7 +206,7 @@ void pdg::ProgramDependencyGraph::connectCallerAndCallee(CallWrapper &cw, Functi
 void pdg::ProgramDependencyGraph::connectIntraprocDependencies(Function &F)
 {
   // add control dependency edges
-  getAnalysis<ControlDependencyGraph>(F); // add data dependencies for nodes in F
+  // getAnalysis<ControlDependencyGraph>(F); // add data dependencies for nodes in F
   // connect formal tree with address variables
   FunctionWrapper *func_w = getFuncWrapper(F);
   Node *entry_node = func_w->getEntryNode();

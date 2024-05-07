@@ -1,13 +1,21 @@
 #include "DataDependencyGraph.hh"
 
+using namespace llvm;
+
 char pdg::DataDependencyGraph::ID = 0;
 
-using namespace llvm;
+// cl::opt<bool, true> SFA("sf", cl::desc("enable mode for analyzing only one function"), cl::value_desc("single-func"), cl::location(pdg::SingleFuncAnalysis), cl::init(false));
+// cl::opt<std::string> TargetFuncName("tf", cl::desc("Target function to analyze"), cl::value_desc("string"), cl::location(pdg::TargetFuncNameStr));
+
+// specify interface function
+cl::opt<std::string> InterfaceFuncsPath("ifuncs",
+                                cl::desc("Specify the path of the instrumented binary"),
+                                cl::value_desc("target bin path to instrument"),
+                                cl::init(""));
 
 bool pdg::DataDependencyGraph::runOnModule(Module &M)
 {
   _module = &M;
-
 
   PDGCallGraph &call_g = PDGCallGraph::getInstance();
   if (!call_g.isBuild())
@@ -22,22 +30,41 @@ bool pdg::DataDependencyGraph::runOnModule(Module &M)
     ptaw.setupPTA(M);
 
   ProgramGraph &g = ProgramGraph::getInstance();
+
+  // read interface functions
+  std::ifstream file(InterfaceFuncsPath);
+  if (file.good())
+  {
+    pdgutils::readLinesFromFile(g.iFuncNames, InterfaceFuncsPath);
+    file.close();
+  }
+  else
+  {
+    std::cerr << "File not found: " << InterfaceFuncsPath << std::endl;
+    return false;
+  }
+
   if (!g.isBuild())
   {
+    // setup the interface functions for PDG build
     g.build(M);
     g.bindDITypeToNodes(M);
   }
 
-  for (auto &F : M)
+  for (auto f : g.funcToBuild)
   {
+    Function &F = *f;
     if (F.isDeclaration() || F.empty())
       continue;
+
+    if (!g.hasFuncWrapper(F))
+      continue;
+
     // if (!call_g.isBuildFuncNode(F))
     //   continue;
     _mem_dep_res = &getAnalysis<MemoryDependenceWrapperPass>(F).getMemDep();
     for (auto instIter = inst_begin(F); instIter != inst_end(F); instIter++)
     {
-
       addDefUseEdges(*instIter);
       addAliasEdges(*instIter);
       addRAWEdges(*instIter);
@@ -68,6 +95,7 @@ void pdg::DataDependencyGraph::addAliasEdges(Instruction &inst)
     auto andersAAresult = ptaw.queryAlias(inst, *instIter);
     auto mustAliasRes = queryMustAlias(inst, *instIter);
     if (andersAAresult != NoAlias || mustAliasRes != NoAlias)
+    if (mustAliasRes != NoAlias)
     {
       Node *src = g.getNode(inst);
       Node *dst = g.getNode(*instIter);
@@ -111,6 +139,15 @@ void pdg::DataDependencyGraph::addDefUseEdges(Instruction &inst)
     if (src == nullptr || dst == nullptr)
       continue;
     src->addNeighbor(*dst, EdgeType::DATA_DEF_USE);
+    // add a special variant fro data def_use relation
+    if (isa<LoadInst>(user))
+      src->addNeighbor(*dst, EdgeType::DATA_DEF_USE_LOAD);
+    else if (isa<GetElementPtrInst>(user))
+      src->addNeighbor(*dst, EdgeType::DATA_DEF_USE_GEP);
+    else if (isa<CastInst>(user))
+      src->addNeighbor(*dst, EdgeType::DATA_DEF_USE_CAST);
+    else if (isa<BinaryOperator>(user))
+      src->addNeighbor(*dst, EdgeType::DATA_DEF_USE_ARITH);
   }
 }
 
@@ -133,7 +170,6 @@ void pdg::DataDependencyGraph::addRAWEdges(Instruction &inst)
   if (src == nullptr || dst == nullptr)
     return;
   dst->addNeighbor(*src, EdgeType::DATA_RAW);
-  src->addNeighbor(*dst, EdgeType::DATA_RAW_REV);
 }
 
 void pdg::DataDependencyGraph::addRAWEdgesUnderapproximate(Instruction &inst)
@@ -220,23 +256,27 @@ AliasResult pdg::DataDependencyGraph::queryMustAlias(Value &v1, Value &v2)
         if (user == &v2)
           return MustAlias;
       }
-      // // check 
-      // if (StoreInst *si = dyn_cast<StoreInst>(user))
-      // {
-      //   if (si->getPointerOperand() == load_addr)
-      //   {
-      //     if (si->getValueOperand() == &v2)
-      //       return MustAlias;
-      //   }
-      // }
     }
   }
 
   // handle gep
+  ProgramGraph &g = ProgramGraph::getInstance();
   if (GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&v1))
   {
     if (gep->getPointerOperand() == &v2 && gep->hasAllZeroIndices())
       return MustAlias;
+    if (GetElementPtrInst *gepp = dyn_cast<GetElementPtrInst>(&v2))
+    {
+      auto gepAddr = gep->getPointerOperand();
+      auto geppAddr = gepp->getPointerOperand();
+      if (g.getNode(*gepAddr))
+      {
+        auto aliasNodes = g.getNode(*gepAddr)->getOutNeighborsWithDepType(EdgeType::DATA_ALIAS);
+        // g.findNodesReachedByEdge(*g.getNode(*gepAddr), EdgeType::DATA_ALIAS);
+        if (aliasNodes.find(g.getNode(*geppAddr)) != aliasNodes.end())
+          return MustAlias;
+      }
+    }
   }
 
   // for others instructions, check if v2 can be loaded form the same address
@@ -278,30 +318,75 @@ void pdg::DataDependencyGraph::addEqualObjEdge(LoadInst &li)
   ProgramGraph &g = ProgramGraph::getInstance();
   // search for object load from the same address
   auto loadAddr = li.getPointerOperand();
-  for (auto user : li.users())
+  auto loadAddrNode = g.getNode(*loadAddr);
+  auto aliasNodes = g.findNodesReachedByEdge(*loadAddrNode, EdgeType::DATA_ALIAS);
+  for (auto aliasNode : aliasNodes)
   {
-    if (auto si = dyn_cast<StoreInst>(user))
+    if (aliasNode == loadAddrNode)
+      continue;
+
+    auto aliasNodeVal = aliasNode->getValue();
+    for (auto aliasUser : aliasNodeVal->users())
     {
-      // check if the object is being stored to another SSA register
-      if (si->getValueOperand() == &li)
+      if (isa<LoadInst>(aliasUser))
       {
-        auto storeAddr = si->getPointerOperand();
-        // for the stored SSA register, check the load from the address, the loaded object is the equavalent
-        // object of li
-        for (auto storeAddrUser : storeAddr->users())
-        {
-          if (isa<LoadInst>(storeAddrUser))
-          {
-            auto srcObjNode = g.getNode(li);
-            auto dstObjNode = g.getNode(*storeAddrUser);
-            if (!srcObjNode || !dstObjNode)
-              continue;
-            srcObjNode->addNeighbor(*dstObjNode, EdgeType::DATA_EQUL_OBJ);
-          }
-        }
+        auto srcObjNode = g.getNode(li);
+        auto dstObjNode = g.getNode(*aliasUser);
+        if (!srcObjNode || !dstObjNode)
+          continue;
+        srcObjNode->addNeighbor(*dstObjNode, EdgeType::DATA_EQUL_OBJ);
       }
     }
   }
+
+  // for (auto user : li.users())
+  // {
+  //   if (user->isPointerTy())
+  //   {
+  //   // }
+  //   // if (auto si = dyn_cast<StoreInst>(user))
+  //   // {
+  //     // check if the object is being stored to another SSA register
+      
+
+  //     if (si->getValueOperand() == &li)
+  //     {
+  //       auto storeAddr = si->getPointerOperand();
+  //       auto stroeAddrNode = g.getNode(*storeAddr);
+  //       auto aliasNodes = g.findNodesReachedByEdge(*stroeAddrNode, EdgeType::DATA_ALIAS);
+  //       // for the stored SSA register, check the load from the address, the loaded object is the equavalent
+  //       // object of li
+
+  //       for (auto aliasNode : aliasNodes)
+  //       {
+  //         auto aliasNodeVal = aliasNode->getValue();
+  //         for (auto aliasUser : aliasNodeVal->users())
+  //         {
+  //           if (isa<LoadInst>(aliasUser))
+  //           {
+  //             auto srcObjNode = g.getNode(li);
+  //             auto dstObjNode = g.getNode(*aliasUser);
+  //             if (!srcObjNode || !dstObjNode)
+  //               continue;
+  //             srcObjNode->addNeighbor(*dstObjNode, EdgeType::DATA_EQUL_OBJ);
+  //           }
+  //         }
+  //       }
+
+  //       // for (auto storeAddrUser : storeAddr->users())
+  //       // {
+  //       //   if (isa<LoadInst>(storeAddrUser))
+  //       //   {
+  //       //     auto srcObjNode = g.getNode(li);
+  //       //     auto dstObjNode = g.getNode(*storeAddrUser);
+  //       //     if (!srcObjNode || !dstObjNode)
+  //       //       continue;
+  //       //     srcObjNode->addNeighbor(*dstObjNode, EdgeType::DATA_EQUL_OBJ);
+  //       //   }
+  //       // }
+  //     }
+  //   }
+  // }
 }
 
 void pdg::DataDependencyGraph::getAnalysisUsage(AnalysisUsage &AU) const

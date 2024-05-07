@@ -2,7 +2,7 @@
 #define CONTROLDEPENDENCYGRAPH_H_
 #include "Graph.hh"
 #include "PDGCallGraph.hh"
-#include "llvm/Analysis/PostDominators.h"
+#include "ControlDepLib.hh"
 
 namespace pdg
 {
@@ -17,8 +17,9 @@ namespace pdg
     void addControlDepFromNodeToBB(Node &n, llvm::BasicBlock &bb, EdgeType edge_type);
     void addControlDepFromEntryNodeToEntryBlock(llvm::Function &F);
     void addControlDepFromDominatedBlockToDominator(llvm::Function &F);
+    std::unordered_set<llvm::BasicBlock *> findAllIntraprocSuccBB(llvm::BasicBlock &BB);
   private:
-    llvm::PostDominatorTree *_PDT;
+    llvm::ControlDependenceGraph *_CDG;
   };
 } // namespace pdg
 

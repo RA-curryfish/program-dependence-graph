@@ -205,10 +205,59 @@ void pdg::RiskyBoundaryAPIAnalysis::handleTransitiveRiskyAPI(Function *boundaryF
   }
 }
 
+
+// protocol violation related attacks, should move the impl to a separate file later
+std::set<Function *> pdg::RiskyBoundaryAPIAnalysis::computeKernelInterfaceFuncCSUnderCondition()
+{
+  std::set<Function *> ret;
+  // step1: obtain driver boundary functions
+  auto kernelInterfaceFuncs = _SDA->getBoundaryFuncs();
+  CallInstSet kernelFuncCSs;
+  for (auto f : kernelInterfaceFuncs)
+  {
+    // skip driver boundary function
+    if (_SDA->isDriverFunc(*f))
+      continue;
+    // step 2: obtain the driver call sites of the kernel interface functions
+    auto callSites = _callGraph->getFunctionCallSites(*f);
+    for (auto callSite : callSites)
+    {
+      auto callerFunc = callSite->getFunction();
+      if (_SDA->isDriverFunc(*callerFunc))
+        kernelFuncCSs.insert(callSite);
+    }
+  }
+
+  // step 3: check if the kernel interface function call sites are under conditions
+  std::set<EdgeType> ctrlEdge = {EdgeType::CONTROL};
+  for (auto CS : kernelFuncCSs)
+  {
+    // obtain PDG node for the call site
+    auto callSiteNode = _PDG->getNode(*CS);
+    // use control dep (backward) to obtain the condition guarding the lock call
+    auto controlDepNodes = _PDG->findNodesReachedByEdges(*callSiteNode, ctrlEdge, true);
+    auto it = controlDepNodes.find(callSiteNode);
+    if (it != controlDepNodes.end())
+      controlDepNodes.erase(it);
+    // when there is a check for the call site
+    if (controlDepNodes.size() > 0)
+    {
+      auto calledKernelFunc = pdgutils::getCalledFunc(*CS);
+      if (calledKernelFunc)
+        ret.insert(calledKernelFunc);
+    }
+  }
+  
+  return ret;
+}
+
+
 void pdg::RiskyBoundaryAPIAnalysis::analyzeRiskyBoundaryKernelAPIs(nlohmann::ordered_json &riskyAPIJsonObjs)
 {
   unsigned caseID = 0;
-  for (auto boundaryFunc : _SDA->getBoundaryFuncs())
+
+  auto kernelFuncCalledUnderConditions = computeKernelInterfaceFuncCSUnderCondition();
+  for (auto boundaryFunc : kernelFuncCalledUnderConditions)
   {
     // only analyze kernel boundary functions
     if (_SDA->isDriverFunc(*boundaryFunc))

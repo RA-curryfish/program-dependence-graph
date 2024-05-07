@@ -41,6 +41,8 @@ namespace pdg
     void setIsBuild() { _isBuild = true; }
     bool isBuild() { return _isBuild; }
     bool canReach(Node &src, Node &dst, std::set<EdgeType> &includeEdgeTypes, std::set<std::vector<llvm::Function *>> *allPaths, bool recordPath);
+    bool canReach(Node &src, Node &dst, std::set<EdgeType> &edgeTypes);
+    bool canReachIntraproc(Node &src, Node &dst, std::set<EdgeType> &edgeTypes);
     void dfs(Node *currentNode, Node &dst, std::set<EdgeType> &includeEdgeTypes, std::unordered_set<Node *> &visited, std::vector<llvm::Function *> &currentPath, std::set<std::vector<llvm::Function *>> *allPaths, bool recordPath);
     std::unordered_set<Node *> findNodesReachedByEdge(Node &src, EdgeType edgeTy, bool isIntra = false);
     std::unordered_set<Node *> findNodesReachedByEdges(Node &src, std::set<EdgeType> &edgeTypes, bool isBackward = false);
@@ -65,6 +67,9 @@ namespace pdg
     typedef std::unordered_map<llvm::CallInst *, CallWrapper *> CallWrapperMap;
     typedef std::unordered_map<Node *, llvm::DIType *> NodeDIMap;
     typedef std::unordered_map<llvm::GlobalVariable*, Tree*> GlobalVarTreeMap;
+    std::set<std::string> iFuncNames;
+    std::set<llvm::Function *> interfaceFuncs;
+    std::unordered_set<llvm::Function*> funcToBuild;
 
     ProgramGraph() = default;
     ProgramGraph(const ProgramGraph &) = delete;

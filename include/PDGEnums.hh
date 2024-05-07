@@ -22,8 +22,10 @@ namespace pdg
     CONTROL_FLOW, // control flow edges
     DATA_DEF_USE,
     DATA_RAW,
-    DATA_RAW_REV,
-    DATA_READ,
+    DATA_DEF_USE_LOAD,
+    DATA_DEF_USE_GEP,
+    DATA_DEF_USE_CAST,
+    DATA_DEF_USE_ARITH,
     DATA_MAY_ALIAS,
     DATA_MUST_ALIAS,
     DATA_ALIAS,

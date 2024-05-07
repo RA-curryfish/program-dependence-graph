@@ -220,6 +220,9 @@ namespace pdg
     unsigned _char_array_num = 0;
     unsigned _struct_array_num = 0;
     unsigned _unknown_ptr_num = 0;
+
+    // SoK related
+    unsigned _drv_read_fields = 0;
   };
 }
 

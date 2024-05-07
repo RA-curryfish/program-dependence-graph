@@ -27,7 +27,9 @@ namespace pdg
     bool hasReadAccess(llvm::Value &v);
     bool hasWriteAccess(llvm::Value &v);
     bool hasPtrDereference(llvm::Value &v);
+    bool hasUpdateThroughPtr(llvm::Value &v);
     bool hasDoubleLoad(llvm::Value &v);
+    bool hasWriteAfterLoad(llvm::Value &v);
     bool isSentinelType(llvm::GlobalVariable &gv);
     bool isUserOfSentinelTypeVal(llvm::Value &v);
     bool isVoidPointerHasMultipleCasts(TreeNode &treeNode);
@@ -71,8 +73,7 @@ namespace pdg
     void readLinesFromFile(std::set<std::string> &lines, std::string fileName);
     void printSourceLocation(llvm::Instruction &I, llvm::raw_ostream &OutputStream = llvm::errs());
     unsigned getSourceLineNo(llvm::Instruction &I);
-    std::string getSourceLocationStr(llvm::Instruction &I);
-    std::string getSourceLocationStrForInlineInst(llvm::Instruction &I);
+    std::string getSourceLocationStr(llvm::Instruction &I, bool isInline=true);
     std::string getInstructionString(llvm::Instruction &I);
     llvm::DILocation* getTopDebugLocation(llvm::DILocation *DL);
     std::string getFuncSourceLocStr(llvm::Function &F);
@@ -81,6 +82,8 @@ namespace pdg
     unsigned computeFieldUniqueId(unsigned funcId, unsigned argIdx, unsigned fieldOffset);
     std::string edgeTypeToString(EdgeType edgeType);
     std::string nodeTypeToString(GraphNodeType nodeType);
+    std::string riskyDataTypeToString(RiskyDataType riskyDataType);
+    bool isTargetFunc(llvm::Function &F);
   } // namespace pdgutils
 } // namespace pdg
 #endif

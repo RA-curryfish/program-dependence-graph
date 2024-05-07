@@ -206,6 +206,32 @@ bool pdg::pdgutils::hasPtrDereference(Value &v)
   return false;  
 }
 
+bool pdg::pdgutils::hasUpdateThroughPtr(Value &v)
+{
+  if (!v.getType()->isPointerTy())
+    return false;
+
+  // ignore cases that load from stack address
+  if (isa<AllocaInst>(&v))
+    return false;
+
+  // gep computes an address, so the first load from it is the actual object
+  // need to query the second load on the user to check if the value is dereferenced
+  if (isa<GetElementPtrInst>(&v))
+    return hasWriteAfterLoad(v);
+
+  // other cases
+  for (auto user : v.users())
+  {
+    if (auto si = dyn_cast<StoreInst>(user))
+    {
+      if (si->getPointerOperand() == &v)
+        return true;
+    }
+  }
+  return false;
+}
+
 bool inline pdg::pdgutils::hasDoubleLoad(Value &v)
 {
   for (User *user : v.users())
@@ -216,6 +242,26 @@ bool inline pdg::pdgutils::hasDoubleLoad(Value &v)
       {
         if (isa<LoadInst>(secUser))
           return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+bool inline pdg::pdgutils::hasWriteAfterLoad(Value &v)
+{
+  for (User *user : v.users())
+  {
+    if (auto *load = dyn_cast<LoadInst>(user))
+    {
+      for (User *secUser : load->users())
+      {
+        if (auto si = dyn_cast<StoreInst>(secUser))
+        {
+          if (si->getPointerOperand() == load)
+            return true;
+        }
       }
     }
   }
@@ -798,12 +844,21 @@ unsigned pdg::pdgutils::getSourceLineNo(Instruction &I)
   if (const DebugLoc &debugLoc = I.getDebugLoc())
   {
     unsigned line = debugLoc.getLine();
+    auto inlinedDILoc = debugLoc.getInlinedAt();
+    if (inlinedDILoc)
+    {
+      auto DILoc = getTopDebugLocation(inlinedDILoc);
+      if (DILoc)
+      {
+        line = DILoc->getLine();
+      }
+    }
     return line;
   }
   return -1;
 }
 
-std::string pdg::pdgutils::getSourceLocationStr(Instruction &I)
+std::string pdg::pdgutils::getSourceLocationStr(Instruction &I, bool isInline)
 {
   std::string outStr = "";
   std::string filePrefix = "https://github.com/ksplit/lvd-linux/tree/ksplit-latest/";
@@ -813,15 +868,18 @@ std::string pdg::pdgutils::getSourceLocationStr(Instruction &I)
     // default info from debug node
     unsigned line = debugLoc.getLine();
     MDNode *scopeNode = debugLoc.getScope();
-    // if this inst is inlined, need to find the original node
-    auto inlinedDILoc = debugLoc.getInlinedAt();
-    if (inlinedDILoc)
+    if (isInline)
     {
-      auto DILoc = getTopDebugLocation(inlinedDILoc);
-      if (DILoc)
+      // if this inst is inlined, need to find the original node
+      auto inlinedDILoc = debugLoc.getInlinedAt();
+      if (inlinedDILoc)
       {
-        line = DILoc->getLine();
-        scopeNode = DILoc->getScope();
+        auto DILoc = getTopDebugLocation(inlinedDILoc);
+        if (DILoc)
+        {
+          line = DILoc->getLine();
+          scopeNode = DILoc->getScope();
+        }
       }
     }
 
@@ -960,10 +1018,6 @@ std::string pdg::pdgutils::edgeTypeToString(EdgeType edgeType)
     return "DATA_DEF_USE";
   case EdgeType::DATA_RAW:
     return "DATA_RAW";
-  case EdgeType::DATA_RAW_REV:
-    return "DATA_RAW_REV";
-  case EdgeType::DATA_READ:
-    return "DATA_READ";
   case EdgeType::DATA_MAY_ALIAS:
     return "DATA_MAY_ALIAS";
   case EdgeType::DATA_MUST_ALIAS:
@@ -1020,4 +1074,36 @@ std::string pdg::pdgutils::nodeTypeToString(GraphNodeType type)
   default:
     return "Unknown GraphNodeType";
   }
+}
+
+std::string pdg::pdgutils::riskyDataTypeToString(RiskyDataType riskyDataType)
+{
+  switch (riskyDataType)
+  {
+  case RiskyDataType::PTR_READ:
+    return "PTR_READ";
+  case RiskyDataType::ARR_IDX:
+    return "ARR_IDX";
+  case RiskyDataType::DIV_BY_ZERO:
+    return "DIV_BY_ZERO";
+  case RiskyDataType::NUM_ARITH:
+    return "NUM_ARITH";
+  case RiskyDataType::CONTROL_VAR:
+    return "CONTROL_VAR";
+  case RiskyDataType::RISKY_KERNEL_FUNC:
+    return "RISKY_KERNEL_FUNC";
+  case RiskyDataType::OTHER:
+    return "OTHER";
+  default:
+    break;
+  } 
+
+  return "";
+}
+
+bool pdg::pdgutils::isTargetFunc(Function &F)
+{
+  if (F.getName().str() == "pcre2_match_8")
+    return true;
+  return false;
 }

@@ -76,7 +76,7 @@ namespace llvm
       switch (edgeTy)
       {
       case pdg::EdgeType::CONTROL:
-        return "";
+        return "label = \"{C}\"";
       case pdg::EdgeType::DATA_DEF_USE:
         return "style=dotted,label = \"{DEF_USE}\" ";
       case pdg::EdgeType::DATA_ALIAS:

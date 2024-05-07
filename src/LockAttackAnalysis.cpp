@@ -581,6 +581,10 @@ void pdg::LockAttackAnalysis::computeDrvCallBackCallSite()
       // only check for kernel funcs
       if (_SDA->isDriverFunc(*CS->getFunction()))
         continue;
+      // if the call instruction has void return value, we don't need to check
+      if (CS->getType()->isVoidTy())
+        continue;
+
       nlohmann::ordered_json csJson;
       csJson["Ret loc"] = pdgutils::getSourceLocationStr(*CS);
       csJson["Drv func"] = F->getName().str();
@@ -591,18 +595,8 @@ void pdg::LockAttackAnalysis::computeDrvCallBackCallSite()
   taintutils::printJsonToFile(atkJsons, "DrvCallBackRetLoc.json");
 }
 
-// TODO: need to think about how to identify critical resource functions
-void pdg::LockAttackAnalysis::computeCorruptedCallBackRetVal()
-{
-  // compute all the driver functions that return a value
-
-  // for all such driver interface function, obtain the return statements
-}
-
 // the idea to find all the BUG_ON that can be reached from the kernel interface functions
 // On IR, it's hard to retrive the conditiona used in the BUG_ON macro.
-//
-
 void pdg::LockAttackAnalysis::computeBugOnLoc()
 {
   nlohmann::ordered_json atkJsons = nlohmann::ordered_json::array();

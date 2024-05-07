@@ -79,6 +79,71 @@ bool pdg::GenericGraph::canReach(Node &src, Node &dst, std::set<EdgeType> &inclu
     return visited.find(&dst) != visited.end();
 }
 
+bool pdg::GenericGraph::canReach(Node &src, Node &dst, std::set<EdgeType> &edgeTypes)
+{
+  if (&src == &dst)
+    return true;
+
+  std::queue<Node *> nodeQueue;
+  std::unordered_set<Node *> seenNodes;
+  nodeQueue.push(&src);
+
+  while (!nodeQueue.empty())
+  {
+    Node *currentNode = nodeQueue.front();
+    nodeQueue.pop();
+
+    if (currentNode == &dst)
+      return true;
+
+    if (seenNodes.find(currentNode) != seenNodes.end())
+      continue;
+
+    seenNodes.insert(currentNode);
+
+    for (auto outEdge : currentNode->getOutEdgeSet())
+    {
+      if (edgeTypes.find(outEdge->getEdgeType()) != edgeTypes.end())
+        nodeQueue.push(outEdge->getDstNode());
+    }
+  }
+  return false;
+}
+
+bool pdg::GenericGraph::canReachIntraproc(Node &src, Node &dst, std::set<EdgeType> &edgeTypes)
+{
+  if (&src == &dst)
+    return true;
+
+  std::queue<Node *> nodeQueue;
+  std::unordered_set<Node *> seenNodes;
+  nodeQueue.push(&src);
+
+  auto srcFunc = src.getFunc();
+  while (!nodeQueue.empty())
+  {
+    Node *currentNode = nodeQueue.front();
+    nodeQueue.pop();
+
+    if (currentNode == &dst)
+      return true;
+
+    if (seenNodes.find(currentNode) != seenNodes.end())
+      continue;
+
+    seenNodes.insert(currentNode);
+
+    for (auto outEdge : currentNode->getOutEdgeSet())
+    {
+      if (edgeTypes.find(outEdge->getEdgeType()) != edgeTypes.end())
+      {
+        if (outEdge->getDstNode()->getFunc() == srcFunc)
+          nodeQueue.push(outEdge->getDstNode());
+      }
+    }
+  }
+  return false;
+}
 
 std::unordered_set<pdg::Node *> pdg::GenericGraph::findNodesReachedByEdge(pdg::Node &src, EdgeType edgeTy, bool isIntra)
 {
@@ -138,14 +203,15 @@ std::unordered_set<pdg::Node *> pdg::GenericGraph::findNodesReachedByEdges(pdg::
       if (edgeTypes.find(edge->getEdgeType()) == edgeTypes.end())
         continue;
       // special processing for def-use edge. Avoiding concluding that operand in call instruction has def-use relation with the return value.
-      if (edge->getEdgeType() == EdgeType::DATA_DEF_USE)
-      {
-        auto dstNodeVal = edge->getDstNode()->getValue();
+      // if (edge->getEdgeType() == EdgeType::DATA_DEF_USE)
+      // {
+      //   auto dstNodeVal = edge->getDstNode()->getValue();
         // if (isBackward)
         //   dstNodeVal = edge->getSrcNode()->getValue();
-        if (dstNodeVal && isa<CallInst>(dstNodeVal))
-          continue;
-      }
+        // TODO: need finer grain taint rule for return value.
+        // if (dstNodeVal && isa<CallInst>(dstNodeVal))
+        //   continue;
+      // }
       if (isBackward)
         nodeQueue.push(edge->getSrcNode());
       else
@@ -157,12 +223,28 @@ std::unordered_set<pdg::Node *> pdg::GenericGraph::findNodesReachedByEdges(pdg::
 }
 
 // PDG Specific
-void pdg::ProgramGraph::build(Module &M) {
+void pdg::ProgramGraph::build(Module &M)
+{
+  auto &call_g = PDGCallGraph::getInstance();
+  // setup functions to build
+  for (auto fName : iFuncNames)
+  {
+    auto func = M.getFunction(StringRef(fName));
+    interfaceFuncs.insert(func);
+    auto callNode = call_g.getNode(*func);
+    auto transFuncNodes = call_g.computeTransitiveClosure(*callNode);
+    for (auto n : transFuncNodes)
+    {
+      if (!n->getValue())
+        continue;
+      if (auto f = dyn_cast<Function>(n->getValue()))
+        funcToBuild.insert(f);
+    }
+  }
 
   buildGlobalVariables(M);
   buildFunctions(M);
   buildCallGraphAndCallSites(M);
-
   _isBuild = true;
 }
 
@@ -192,14 +274,11 @@ void pdg::ProgramGraph::buildGlobalVariables(Module &M)
 
 void pdg::ProgramGraph::buildFunctions(Module &M)
 {
-  auto &call_g = PDGCallGraph::getInstance();
-  for (auto &F : M)
+  for (auto f : funcToBuild)
   {
-
+    Function &F = *f;
     if (F.isDeclaration() || F.empty())
       continue;
-    // if (!call_g.isBuildFuncNode(F))
-    //   continue;
     FunctionWrapper *func_w = new FunctionWrapper(&F);
     buildFunctionInstructions(F, func_w);
     func_w->buildFormalTreeForArgs();
@@ -232,8 +311,9 @@ void pdg::ProgramGraph::buildFunctionInstructions(Function &F, FunctionWrapper *
 
 void pdg::ProgramGraph::buildCallGraphAndCallSites(Module &M)
 {
-  for (auto &F : M)
+  for (auto func : funcToBuild)
   {
+    Function &F = *func;
     if (F.isDeclaration() || F.empty() || !hasFuncWrapper(F))
       continue;
 
@@ -269,8 +349,9 @@ void pdg::ProgramGraph::handleCallSites(Module &M, CallInst *ci)
 
 void pdg::ProgramGraph::bindDITypeToNodes(Module &M)
 {
-  for (auto &F : M)
+  for (auto f : funcToBuild)
   {
+    Function &F = *f;
     if (F.isDeclaration())
       continue;
     FunctionWrapper *fw = _func_wrapper_map[&F];

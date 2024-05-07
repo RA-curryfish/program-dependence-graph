@@ -24,6 +24,7 @@ namespace pdg
     llvm::StringRef getPassName() const override { return "Risky Boundary API Analysis"; }
     bool runOnModule(llvm::Module &M) override;
     // private states update
+    using CallInstSet = std::unordered_set<llvm::CallInst *>;
     using StoreJsonMap = std::map<llvm::StoreInst *, nlohmann::ordered_json>;
     using StoreCondMap = std::map<llvm::StoreInst *, std::set<llvm::Value *>>;
     void analyzeKernelPrivateStatesUpdate();
@@ -40,6 +41,7 @@ namespace pdg
     void propagateBoundaryParameterTaints(llvm::Function *boundaryFunc);
 
     // risky apis invoked by the driver
+    std::set<llvm::Function *> computeKernelInterfaceFuncCSUnderCondition();
     void analyzeRiskyBoundaryKernelAPIs(nlohmann::ordered_json &riskyAPIJsonObjs);
     void handleDirectRiskyAPI(llvm::Function *boundaryFunc, nlohmann::ordered_json &riskyAPIJsonObjs, unsigned &caseID);
     void handleTransitiveRiskyAPI(llvm::Function *boundaryFunc, nlohmann::ordered_json &riskyAPIJsonObjs, unsigned &caseID);

@@ -7,6 +7,7 @@ using namespace llvm;
 static std::unordered_set<std::string> sensitiveOperations = {
     // "malloc",
     // "free",
+    // "printk",
     "kmalloc",
     "vmalloc",
     "kzalloc",
@@ -80,10 +81,10 @@ static std::unordered_map<std::string, std::string> RiskyFuncToClassMap = {
     {"vzalloc", "memory"},
     {"vfree", "memory"},
     // Concurrency Management
-    {"spin_lock", "concurrency"},
-    {"spin_unlock", "concurrency"},
-    {"mutex_lock", "concurrency"},
-    {"mutex_unlock", "concurrency"},
+    // {"spin_lock", "concurrency"},
+    // {"spin_unlock", "concurrency"},
+    // {"mutex_lock", "concurrency"},
+    // {"mutex_unlock", "concurrency"},
     // Reference Counting
     {"atomic_inc", "refCount"},
     {"atomic_dec", "refCount"},
@@ -112,7 +113,11 @@ static std::unordered_map<std::string, std::string> RiskyFuncToClassMap = {
     {"pci_bus_write_config_byte", "bus"},
     {"pci_bus_write_config_word", "bus"},
     {"pci_bus_write_config_dword", "bus"},
+    {"pci_write_config_byte", "bus"},
+    {"pci_write_config_word", "bus"},
+    {"pci_write_config_dword", "bus"},
     {"pci_bus_max_busnr", "bus"},
+    {"pci_write_config_byte", "bus"},
     {"pci_find_capability", "bus"},
     {"pci_bus_find_capability", "bus"},
     {"pci_find_next_ext_capability", "bus"},
@@ -165,7 +170,7 @@ bool pdg::taintutils::isPointeeModified(Node &n)
 {
   auto nodeVal = n.getValue();
   if (nodeVal && nodeVal->getType()->isPointerTy())
-    return pdgutils::hasWriteAccess(*nodeVal);
+    return pdgutils::hasUpdateThroughPtr(*nodeVal);
   return false;
 }
 
@@ -313,7 +318,7 @@ bool pdg::taintutils::isValueInSensitiveBranch(Node &n, std::string &senOpName)
               // to inline assembly
               if (ci->isInlineAsm())
               {
-                senOpName = "inline_asm";
+                senOpName = "inline_asm " + pdgutils::getSourceLocationStr(*ci, true);
                 return true;
               }
               auto calledFuncName = calledFunc->getName().str();
@@ -322,7 +327,7 @@ bool pdg::taintutils::isValueInSensitiveBranch(Node &n, std::string &senOpName)
               {
                 if (calledFuncName.find(op) != std::string::npos)
                 {
-                  senOpName = op;
+                  senOpName = op + " " + pdgutils::getSourceLocationStr(*ci, true);
                   return true;
                 }
               }
@@ -333,7 +338,7 @@ bool pdg::taintutils::isValueInSensitiveBranch(Node &n, std::string &senOpName)
             {
               if (LI.isLoopHeader(BI->getParent()))
               {
-                senOpName = "loop";
+                senOpName = "loop " + pdgutils::getSourceLocationStr(*BI, true);
                 return true;
               }
             }
@@ -344,7 +349,7 @@ bool pdg::taintutils::isValueInSensitiveBranch(Node &n, std::string &senOpName)
               // skip gep on struct pointer
               if (pdgutils::isStructPointerType(*gep->getPointerOperand()->getType()))
                 continue;
-              senOpName = "buffer_acc";
+              senOpName = "buffer_acc " + pdgutils::getSourceLocationStr(*gep, true);
               return true;
             }
           }
@@ -425,6 +430,55 @@ void pdg::taintutils::printJsonToFile(nlohmann::ordered_json &traceJsonObjs, std
   traceLogFile.close();
 }
 
+void pdg::taintutils::printClassifiedDataRecord(nlohmann::ordered_json &traceJsonObjs, std::string logFileName)
+{
+ if (traceJsonObjs.empty())
+    return;
+  // record the opend files
+  static std::unordered_set<std::string> openedFiles;
+
+  // create and output log files
+  SmallString<128> dirPath("logs");
+  if (!sys::fs::exists(dirPath))
+  {
+    std::error_code EC = sys::fs::create_directory(dirPath, true, sys::fs::perms::all_all);
+    if (EC)
+    {
+      errs() << "Error: Failed to create directory. " << EC.message() << "\n";
+    }
+  }
+
+  // overwrite the whole file
+  SmallString<128> jsonTraceCondFilePath = dirPath;
+  sys::path::append(jsonTraceCondFilePath, logFileName);
+
+  std::ios_base::openmode mode = std::ios::app;
+  // If the file has not been opened before, clear its content
+  if (openedFiles.find(logFileName) == openedFiles.end())
+  {
+    mode = std::ios::out;
+    openedFiles.insert(logFileName);
+  }
+
+  std::ofstream traceLogFile(jsonTraceCondFilePath.c_str(), mode);
+  if (!traceLogFile.is_open())
+  {
+    errs() << "Error: Failed to open json trace file.\n";
+  }
+  // print json object to the file
+  for (auto json : traceJsonObjs)
+  {
+    std::string record = "";
+    std::string accPath = json["acc_path"];
+    std::string kernelInterfaceFunc = json["kernel_interface_func"];
+    std::string drvCallerFuncNames = json["drv_caller_func_names"];
+    std::string riskyClass = json["risky"];
+    record = accPath + ", " + kernelInterfaceFunc + ", " + drvCallerFuncNames + ", " + riskyClass;
+    traceLogFile << record << "\n";
+  }
+  traceLogFile.close(); 
+}
+
 void pdg::taintutils::propagateTaints(pdg::Node &srcNode, std::set<pdg::EdgeType> &edgeTypes, std::set<Node *> &taintNodes)
 {
   ProgramGraph &PDG = ProgramGraph::getInstance();
@@ -449,6 +503,8 @@ std::string pdg::taintutils::riskyDataTypeToString(pdg::RiskyDataType type)
     return "ARR_IDX";
   case RiskyDataType::DIV_BY_ZERO:
     return "DIV_BY_ZERO";
+  case RiskyDataType::NUM_ARITH:
+    return "NUM_ARITH";
   case RiskyDataType::CONTROL_VAR:
     return "BRANCH";
   case RiskyDataType::RISKY_KERNEL_FUNC:

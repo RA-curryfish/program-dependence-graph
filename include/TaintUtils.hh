@@ -31,6 +31,7 @@ namespace pdg
     // helper funcs
     std::string riskyDataTypeToString(RiskyDataType type);
     void printJsonToFile(nlohmann::ordered_json &json, std::string logFileName);
+    void printClassifiedDataRecord(nlohmann::ordered_json &json, std::string logFileName);
     bool isRiskyFunc(std::string funcName);
     std::string getRiskyClassStr(std::string funcName);
     

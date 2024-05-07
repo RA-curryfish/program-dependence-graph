@@ -47,8 +47,10 @@ bool pdg::DataAccessAnalysis::runOnModule(Module &M)
   // _globalVarAccessInfo.open("global_var_access_info.idl");
   unsigned total_num_funcs = 0;
   // intra-procedural analysis
-  for (auto &F : M)
+  nlohmann::json moduleJsonObj;
+  for (auto f : _PDG->interfaceFuncs)
   {
+    Function &F = *f;
     if (F.isDeclaration())
       continue;
     // if (!_callGraph->isBuildFuncNode(F))
@@ -62,6 +64,9 @@ bool pdg::DataAccessAnalysis::runOnModule(Module &M)
     }
     // compute data access for function arguments, used later for IDL generation
     computeDataAccessForFuncArgs(F);
+    // generate json object for eBPF enforcement
+    if (_PDG->interfaceFuncs.find(f) != _PDG->interfaceFuncs.end())
+      generateJSONObjectForFunc(F, moduleJsonObj);
     total_num_funcs++;
   }
 
@@ -76,6 +81,14 @@ bool pdg::DataAccessAnalysis::runOnModule(Module &M)
     _ksplitStats->printDrvAPIStats();
     _ksplitStats->printDataStats();
   }
+
+  _ksplitStats->printDataStats();
+
+  // dump the policy to a local file
+  std::ofstream policyFile("logs/eBPFPolicy.json", std::ios::out);
+  policyFile << moduleJsonObj.dump(2) << "\n";
+  policyFile.close();
+
   errs() << "number of kernel read driver update fields: " << _kernelRAWDriverFields << "\n";
   errs() << "Finish analyzing data access info.";
   return false;
@@ -925,6 +938,11 @@ void pdg::DataAccessAnalysis::computeKernelReadDriverUpdateFields(Module &M)
 void pdg::DataAccessAnalysis::computeDataAccessForTree(Tree *tree, bool isRet)
 {
   TreeNode *rootNode = tree->getRootNode();
+  auto func = tree->getFunc();
+  bool isDrvFunc = false;
+  if (func && _SDA->isDriverFunc(*func))
+    isDrvFunc = true;
+
   assert(rootNode != nullptr && "cannot compute access info for empty tree!");
   std::queue<TreeNode *> nodeQueue;
   nodeQueue.push(rootNode);
@@ -933,6 +951,10 @@ void pdg::DataAccessAnalysis::computeDataAccessForTree(Tree *tree, bool isRet)
     TreeNode *currentNode = nodeQueue.front();
     nodeQueue.pop();
     computeDataAccessForTreeNode(*currentNode, false, isRet);
+    // collecting stats on fields read by driver, without considering shared data
+    if (isDrvFunc && currentNode->hasReadAccess())
+      _ksplitStats->_drv_read_fields++;
+
     for (auto childNode : currentNode->getChildNodes())
     {
       nodeQueue.push(childNode);
@@ -977,7 +999,6 @@ void pdg::DataAccessAnalysis::computeDataAccessForGlobalTree(Tree *tree)
 
 void pdg::DataAccessAnalysis::computeDataAccessForFuncArgs(Function &F)
 {
-  // errs() << "compute intra for func: " << F.getName().str() << "\n";
   auto func_wrapper_map = _PDG->getFuncWrapperMap();
   if (func_wrapper_map.find(&F) == func_wrapper_map.end())
     return;

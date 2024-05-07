@@ -1,13 +1,11 @@
 #include "eBPFProgGeneration.hpp"
+#include <fstream>
+
 using namespace llvm;
 char pdg::EbpfGeneration::ID = 0;
 
-cl::opt<std::string> TargetFuncName("target-func",
-                                cl::desc("Specify the target function to analyze"),
-                                cl::value_desc("function_name"),
-                                cl::init(""));
 
-cl::opt<std::string> TargetBinPath("target-bin",
+cl::opt<std::string> TargetBinPath("binpath",
                                 cl::desc("Specify the path of the instrumented binary"),
                                 cl::value_desc("target bin path to instrument"),
                                 cl::init(""));
@@ -19,11 +17,9 @@ bool pdg::EbpfGeneration::runOnModule(Module &M)
   PDG = DAA->getPDG();
   
   // step 2: using the access information to generate policy
-  std::set<std::string> boundaryAPINames;
-  pdgutils::readLinesFromFile(boundaryAPINames, "boundaryAPI");
 
-  std::string eBPFKernelFileName = "user_prog_check.c";
-  std::string eBPFUserspaceFileName = "user_prog_check.py";
+  std::string eBPFKernelFileName = "prog.ebpf.c"; // this is the source code
+  std::string eBPFUserspaceFileName = "prog.py"; // this is the userspace code that loads the ebpf program
   EbpfKernelFile.open(eBPFKernelFileName);
   EbpfUserspaceFile.open(eBPFUserspaceFileName);
   
@@ -32,14 +28,10 @@ bool pdg::EbpfGeneration::runOnModule(Module &M)
   // generate kernel program imports(c)
   generateKernelProgImports();
 
-  for (auto &F : M)
+  for (auto f : PDG->interfaceFuncs)
   {
+    Function &F = *f;
     if (F.isDeclaration())
-      continue;
-    // if (F.getName().str() != TargetFuncName)
-    //   continue;
-    std::string funcName = F.getName().str();
-    if (boundaryAPINames.find(funcName) == boundaryAPINames.end())
       continue;
     generateEbpfMapOnFunc(F);
     generateEbpfUserProg(F);
@@ -95,12 +87,16 @@ void pdg::EbpfGeneration::generateFuncStructDefinition(Function &F)
     auto argTree = iter->second;
     auto rootNode = argTree->getRootNode();
     auto rootDIType = rootNode->getDIType();
+
     if (!rootDIType || !dbgutils::isStructPointerType(*rootDIType))
       continue;
 
     auto structDIType = rootNode->getChildNodes()[0]->getDIType();
     if (!structDIType)
+    {
+      errs() << "[Warning]: cannot find struct ditype " << F.getName() << "\n";
       continue;
+    }
     auto structDefName = dbgutils::getSourceLevelTypeName(*structDIType);
     if (structDefNames.find(structDefName) != structDefNames.end())
       continue;
@@ -136,7 +132,6 @@ void pdg::EbpfGeneration::generateStructDefString(TreeNode &structNode)
     else
     {
       // if the element type is aggregate type, we replace it with array of
-      errs() << "generating for struct type\n";
       if (dbgutils::isStructType(*baseDIType))
       {
         auto fieldByteSize = baseDIType->getSizeInBits() / 8;
@@ -433,8 +428,7 @@ void pdg::EbpfGeneration::generateEbpfKernelEntryProgOnArg(Tree &argTree, unsign
   }
   else
   {
-    // TODO: handle non-struct pointer types
-
+    
   }
 }
 
@@ -554,7 +548,7 @@ void pdg::EbpfGeneration::generateEbpfAccessChecksOnArg(Tree &argTree, unsigned 
       // look up the copy value from copy map
       std::string copyVarName = retriveFieldFromCopyMap(fieldTypeStr, fieldName, mapTypeStr + "_copy_map");
       
-      // check if the retrived pointer is null
+      // check if the retrived pointer is null, a requirement by eBPF program
       EbpfKernelFile << "\tif (!" << ptrVarName << " || " << "!*" << ptrVarName  << " || " << "!" << copyVarName << ")\n" ;
       EbpfKernelFile << "\t\treturn 0;\n";
 

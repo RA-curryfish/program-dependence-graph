@@ -21,7 +21,11 @@
 namespace pdg
 {
   extern bool EnableAnalysisStats;
+  extern bool OnlyControlledPath;
   extern bool DEBUG;
+  extern bool SingleFuncAnalysis;
+  extern std::string TargetFuncNameStr;
+  extern llvm::cl::opt<std::string> TargetFuncName;
 }
 
 #endif
