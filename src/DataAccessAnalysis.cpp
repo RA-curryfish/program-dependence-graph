@@ -39,7 +39,7 @@ bool pdg::DataAccessAnalysis::runOnModule(Module &M)
   _module = &M;
   _SDA = &getAnalysis<SharedDataAnalysis>();
   _PDG = _SDA->getPDG();
-  _callGraph = &PDGCallGraph::getInstance();
+  _callGraph = &PDGCallGraph::getInstance();;
   _ksplitStats = &KSplitStats::getInstance();
   computeExportedFuncsPtrNameMap();
   readDriverDefinedGlobalVarNames("driver_globalvar_names");
@@ -65,8 +65,8 @@ bool pdg::DataAccessAnalysis::runOnModule(Module &M)
     // compute data access for function arguments, used later for IDL generation
     computeDataAccessForFuncArgs(F);
     // generate json object for eBPF enforcement
-    if (_PDG->interfaceFuncs.find(f) != _PDG->interfaceFuncs.end())
-      generateJSONObjectForFunc(F, moduleJsonObj);
+    // if (_PDG->interfaceFuncs.find(f) != _PDG->interfaceFuncs.end())
+    //   generateJSONObjectForFunc(F, moduleJsonObj);
     total_num_funcs++;
   }
 
@@ -1007,11 +1007,14 @@ void pdg::DataAccessAnalysis::computeDataAccessForFuncArgs(Function &F)
   auto argRetTree = fw->getRetFormalInTree();
   computeDataAccessForTree(argRetTree, true);
   // compute arg access info
-  auto argTreeMap = fw->getArgFormalInTreeMap();
-  for (auto iter = argTreeMap.begin(); iter != argTreeMap.end(); iter++)
+  auto argFormalTreeMap = fw->getArgFormalInTreeMap();
+  for (auto iter = argFormalTreeMap.begin(); iter != argFormalTreeMap.end(); iter++)
   {
     Tree *argTree = iter->second;
     computeDataAccessForTree(argTree);
+    // auto arg = iter->first;
+    // if (arg->getType()->isFunctionTy())
+    //   errs() << "find function type in " << F.getName() << "\n";
   }
 }
 
@@ -1596,6 +1599,8 @@ void pdg::DataAccessAnalysis::generateRpcForFunc(Function &F, bool processExport
 {
   // need to use this wrapper to handle nescheck rewrittern funcs
   FunctionWrapper *fw = getNescheckFuncWrapper(F);
+  if (fw == nullptr)
+    return;
   std::string rpcStr = "";
   // generate function rpc stub
   // first generate for return value
@@ -1750,6 +1755,8 @@ void pdg::DataAccessAnalysis::generateIDLForFunc(Function &F, bool processingExp
   // assert(func_iter != func_wrapper_map.end() && "no function wrapper found (IDL-GEN)!");
   // auto fw = func_iter->second;
   FunctionWrapper *fw = getNescheckFuncWrapper(F);
+  if (fw == nullptr)
+    return;
   // process exported funcs later in special manner because of syntax requirement
   if (isExportedFunc(F) && !processingExportedFunc)
   {

@@ -4,7 +4,7 @@
 #include "Graph.hh"
 #include "PDGCallGraph.hh"
 #include "DataDependencyGraph.hh"
-// #include "ControlDependencyGraph.hh"
+#include "ControlDependencyGraph.hh"
 
 namespace pdg
 {

@@ -257,6 +257,7 @@ void pdg::RiskyBoundaryAPIAnalysis::analyzeRiskyBoundaryKernelAPIs(nlohmann::ord
   unsigned caseID = 0;
 
   auto kernelFuncCalledUnderConditions = computeKernelInterfaceFuncCSUnderCondition();
+  errs() << "size of kernel interface call under condition: " << kernelFuncCalledUnderConditions.size() << "\n";
   for (auto boundaryFunc : kernelFuncCalledUnderConditions)
   {
     // only analyze kernel boundary functions

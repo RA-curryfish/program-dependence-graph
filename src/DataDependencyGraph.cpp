@@ -7,12 +7,6 @@ char pdg::DataDependencyGraph::ID = 0;
 // cl::opt<bool, true> SFA("sf", cl::desc("enable mode for analyzing only one function"), cl::value_desc("single-func"), cl::location(pdg::SingleFuncAnalysis), cl::init(false));
 // cl::opt<std::string> TargetFuncName("tf", cl::desc("Target function to analyze"), cl::value_desc("string"), cl::location(pdg::TargetFuncNameStr));
 
-// specify interface function
-cl::opt<std::string> InterfaceFuncsPath("ifuncs",
-                                cl::desc("Specify the path of the instrumented binary"),
-                                cl::value_desc("target bin path to instrument"),
-                                cl::init(""));
-
 bool pdg::DataDependencyGraph::runOnModule(Module &M)
 {
   _module = &M;
@@ -31,19 +25,6 @@ bool pdg::DataDependencyGraph::runOnModule(Module &M)
 
   ProgramGraph &g = ProgramGraph::getInstance();
 
-  // read interface functions
-  std::ifstream file(InterfaceFuncsPath);
-  if (file.good())
-  {
-    pdgutils::readLinesFromFile(g.iFuncNames, InterfaceFuncsPath);
-    file.close();
-  }
-  else
-  {
-    std::cerr << "File not found: " << InterfaceFuncsPath << std::endl;
-    return false;
-  }
-
   if (!g.isBuild())
   {
     // setup the interface functions for PDG build
@@ -51,9 +32,9 @@ bool pdg::DataDependencyGraph::runOnModule(Module &M)
     g.bindDITypeToNodes(M);
   }
 
-  for (auto f : g.funcToBuild)
+  // for (auto f : g.funcToBuild)
+  for (auto &F : M)
   {
-    Function &F = *f;
     if (F.isDeclaration() || F.empty())
       continue;
 

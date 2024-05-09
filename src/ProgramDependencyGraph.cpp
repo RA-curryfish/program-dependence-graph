@@ -15,7 +15,7 @@ bool pdg::DEBUG;
 void pdg::ProgramDependencyGraph::getAnalysisUsage(AnalysisUsage &AU) const
 {
   AU.addRequired<DataDependencyGraph>();
-  // AU.addRequired<ControlDependencyGraph>();
+  AU.addRequired<ControlDependencyGraph>();
   AU.setPreservesAll();
 }
 
@@ -48,9 +48,8 @@ bool pdg::ProgramDependencyGraph::runOnModule(Module &M)
   }
 
   unsigned func_size = 0;
-  for (auto f : _PDG->funcToBuild)
+  for (Function &F : M)
   {
-    Function &F = *f;
     if (F.isDeclaration() || !_PDG->hasFuncWrapper(F))
       continue;
     // if (!call_g.isBuildFuncNode(F))
@@ -206,7 +205,7 @@ void pdg::ProgramDependencyGraph::connectCallerAndCallee(CallWrapper &cw, Functi
 void pdg::ProgramDependencyGraph::connectIntraprocDependencies(Function &F)
 {
   // add control dependency edges
-  // getAnalysis<ControlDependencyGraph>(F); // add data dependencies for nodes in F
+  getAnalysis<ControlDependencyGraph>(F); // add data dependencies for nodes in F
   // connect formal tree with address variables
   FunctionWrapper *func_w = getFuncWrapper(F);
   Node *entry_node = func_w->getEntryNode();

@@ -227,21 +227,6 @@ void pdg::ProgramGraph::build(Module &M)
 {
   auto &call_g = PDGCallGraph::getInstance();
   // setup functions to build
-  for (auto fName : iFuncNames)
-  {
-    auto func = M.getFunction(StringRef(fName));
-    interfaceFuncs.insert(func);
-    auto callNode = call_g.getNode(*func);
-    auto transFuncNodes = call_g.computeTransitiveClosure(*callNode);
-    for (auto n : transFuncNodes)
-    {
-      if (!n->getValue())
-        continue;
-      if (auto f = dyn_cast<Function>(n->getValue()))
-        funcToBuild.insert(f);
-    }
-  }
-
   buildGlobalVariables(M);
   buildFunctions(M);
   buildCallGraphAndCallSites(M);
@@ -274,9 +259,8 @@ void pdg::ProgramGraph::buildGlobalVariables(Module &M)
 
 void pdg::ProgramGraph::buildFunctions(Module &M)
 {
-  for (auto f : funcToBuild)
+  for (auto &F : M)
   {
-    Function &F = *f;
     if (F.isDeclaration() || F.empty())
       continue;
     FunctionWrapper *func_w = new FunctionWrapper(&F);
@@ -311,12 +295,10 @@ void pdg::ProgramGraph::buildFunctionInstructions(Function &F, FunctionWrapper *
 
 void pdg::ProgramGraph::buildCallGraphAndCallSites(Module &M)
 {
-  for (auto func : funcToBuild)
+  for (auto &F : M)
   {
-    Function &F = *func;
     if (F.isDeclaration() || F.empty() || !hasFuncWrapper(F))
       continue;
-
     FunctionWrapper *func_w = getFuncWrapper(F);
     auto call_insts = func_w->getCallInsts();
 
@@ -349,9 +331,8 @@ void pdg::ProgramGraph::handleCallSites(Module &M, CallInst *ci)
 
 void pdg::ProgramGraph::bindDITypeToNodes(Module &M)
 {
-  for (auto f : funcToBuild)
+  for (auto &F : M)
   {
-    Function &F = *f;
     if (F.isDeclaration())
       continue;
     FunctionWrapper *fw = _func_wrapper_map[&F];
