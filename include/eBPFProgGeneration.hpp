@@ -18,17 +18,21 @@ namespace pdg
         void generateArgRefCopyMaps(std::string argName, std::string argTypeName);
         std::string createEbpfMapForType(llvm::DIType &dt);
         void generatePerfOutput();
+        void generateHelperFuncs();
         void generateEbpfMapOnFunc(llvm::Function &F);
         void generateEbpfMapOnArg(Tree &argTree);
+        void generateEbpfMapForStructPointer(TreeNode *argRootNode);
+        void generateEbpfMapForNonStructPointer(llvm::DIType *argRootNode);
         void generateEbpfKernelEntryProgOnFunc(llvm::Function &F);
         void generateEbpfKernelEntryProgOnArg(Tree &argTree, unsigned argIdx);
-        void updateRefMap(std::string fieldTypeStr, std::string fieldName, std::string fieldHierarchyName, std::string typeCopyMap);
-        void updateCopyMap(std::string fieldTypeStr, std::string fieldName, std::string fieldHierarchyName, std::string typeCopyMap);
+        void updateMap(std::string fieldHierarchyName, std::string typeCopyMap);
+        // void updateRefMap(std::string fieldTypeStr, std::string fieldName, std::string fieldHierarchyName, std::string typeCopyMap);
+        // void updateCopyMap(std::string fieldTypeStr, std::string fieldName, std::string fieldHierarchyName, std::string typeCopyMap);
         void generateEbpfFieldAccRules(Tree &argTree, std::string argUpdatedCopyName, std::string argCopyName);
         std::string retriveFieldFromRefMap(std::string fieldTypeStr, std::string fieldName, std::string typeRefMap);
         std::string retriveFieldFromCopyMap(std::string fieldTypeStr, std::string fieldName, std::string typeCopyMap);
         void generateEbpfAccessChecksOnArg(Tree &argTree, unsigned argIdx);
-        void generateEbpfKernelExitProg(llvm::Function &F);
+        void generateEbpfKernelRetProbe(llvm::Function &F);
         void generateEbpfUserProg(llvm::Function &F);
         void generateUserProgImports(std::string kernelProgFileName);
         void generateProbeAttaches(llvm::Function &F);
@@ -38,6 +42,8 @@ namespace pdg
         void generateFuncStructDefinition(llvm::Function &F);
         void generateStructDefString(TreeNode &structNode);
         std::string switchType(const std::string &typeStr);
+        bool isUnspportedTypes(llvm::DIType &dt);
+        std::string getMapDefinition(const std::string &mapName);
 
     private:
         DataAccessAnalysis *DAA;

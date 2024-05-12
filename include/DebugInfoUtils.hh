@@ -34,8 +34,9 @@ namespace pdg
     llvm::DIType *getGlobalVarDIType(llvm::GlobalVariable &gv);
     llvm::DIType *getFuncRetDIType(llvm::Function &F);
     std::string getArrayTypeStr(llvm::DIType &dt);
+    std::string getRawArrayTypeStr(llvm::DIType &dt, std::string fieldName); // get the array without IDL syntax (array/projection)
     std::string getSourceLevelVariableName(llvm::DINode &dt);
-    std::string getSourceLevelTypeName(llvm::DIType &dt, bool isRaw=false);
+    std::string getSourceLevelTypeName(llvm::DIType &dt, bool isRaw=false, std::string fieldName = "");
     std::string getSourceLevelTypeNameWithNoQualifer(llvm::DIType &dt);
     std::string getArgumentName(llvm::Argument &arg);
     unsigned computeFieldOffsetInBytes(llvm::DIType &dt);

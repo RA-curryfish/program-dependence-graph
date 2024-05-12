@@ -301,7 +301,7 @@ std::string pdg::dbgutils::getSourceLevelVariableName(DINode &di_node)
   return "";
 }
 
-std::string pdg::dbgutils::getSourceLevelTypeName(DIType &dt, bool isRaw)
+std::string pdg::dbgutils::getSourceLevelTypeName(DIType &dt, bool isRaw, std::string fieldName)
 {
   auto type_tag = dt.getTag();
   if (!type_tag)
@@ -334,7 +334,7 @@ std::string pdg::dbgutils::getSourceLevelTypeName(DIType &dt, bool isRaw)
   }
   case dwarf::DW_TAG_array_type:
   {
-    return getArrayTypeStr(dt);
+    return getRawArrayTypeStr(dt, fieldName);
   }
   case dwarf::DW_TAG_const_type:
   {
@@ -382,7 +382,41 @@ std::string pdg::dbgutils::getSourceLevelTypeName(DIType &dt, bool isRaw)
   return "";
 }
 
-std::string pdg::dbgutils::getArrayTypeStr(DIType& dt)
+std::string pdg::dbgutils::getRawArrayTypeStr(DIType &dt, std::string fieldName)
+{
+  DICompositeType *dct = cast<DICompositeType>(&dt);
+  auto elements = dct->getElements();
+  // check element size
+  if (elements.size() == 1)
+  {
+    auto element_dt = getLowestDIType(*dct);
+    if (element_dt != nullptr)
+    {
+      auto total_size = dct->getSizeInBits();
+      auto element_size = element_dt->getSizeInBits();
+      auto element_type_name = getSourceLevelTypeName(*element_dt, true);
+      if (isStructPointerType(*element_dt))
+        element_type_name = element_type_name + "*";
+      else if (isStructType(*element_dt))
+        element_type_name = element_type_name;
+
+      if (total_size != 0 && element_size != 0)
+      {
+        auto element_count = total_size / element_size;
+        std::string arr_field_str = element_type_name + " " + fieldName+ "[" + std::to_string(element_count) + "]";
+        return arr_field_str;
+      }
+      else if (total_size == 0)
+      {
+        std::string arr_field_str = element_type_name + " " +fieldName + "[0]";
+        return arr_field_str;
+      }
+    }
+  }
+  return "array";
+}
+
+std::string pdg::dbgutils::getArrayTypeStr(DIType &dt)
 {
   DICompositeType *dct = cast<DICompositeType>(&dt);
   auto elements = dct->getElements();
@@ -455,10 +489,10 @@ DIType *pdg::dbgutils::getFuncRetDIType(Function &F)
 
 std::set<DIType *> pdg::dbgutils::computeContainedStructTypes(DIType &dt)
 {
-  std::set<DIType* > contained_struct_di_types;
+  std::set<DIType *> contained_struct_di_types;
   if (!isStructType(dt))
     return contained_struct_di_types;
-  std::queue<DIType*> type_queue;
+  std::queue<DIType *> type_queue;
   type_queue.push(&dt);
   int current_tree_height = 0;
   int max_tree_height = 5;
@@ -482,7 +516,7 @@ std::set<DIType *> pdg::dbgutils::computeContainedStructTypes(DIType &dt)
       for (unsigned i = 0; i < di_node_arr.size(); i++)
       {
         DIType *field_di_type = dyn_cast<DIType>(di_node_arr[i]);
-        DIType* field_lowest_di_type = getLowestDIType(*field_di_type);
+        DIType *field_lowest_di_type = getLowestDIType(*field_di_type);
         if (!field_lowest_di_type)
           continue;
         if (isStructType(*field_lowest_di_type))
@@ -509,7 +543,7 @@ std::string pdg::dbgutils::getFuncSigName(DIType &dt, Function &F, std::string f
     else
       func_type_str += getSourceLevelTypeName(*ret_di_ty);
 
-    // generate name string for function pointer 
+    // generate name string for function pointer
     func_type_str += " (";
     if (!funcPtrName.empty())
       func_type_str += "*";
@@ -546,7 +580,7 @@ std::string pdg::dbgutils::getFuncSigName(DIType &dt, Function &F, std::string f
           auto baseType = dit->getBaseType();
           if (!baseType)
           {
-            // if a DIderived type has a null base type, this normally 
+            // if a DIderived type has a null base type, this normally
             // represent a void pointer
             func_type_str += "void* ";
           }
@@ -625,16 +659,16 @@ std::set<DbgInfoIntrinsic *> pdg::dbgutils::collectDbgInstInFunc(Function &F)
 
 unsigned pdg::dbgutils::computeDeepCopyFields(DIType &dt, bool onlyCountPointer)
 {
-  std::queue<DIType*> typeQueue;
-  std::unordered_set<DIType*> seenTypes;
+  std::queue<DIType *> typeQueue;
+  std::unordered_set<DIType *> seenTypes;
   unsigned fieldNum = isPointerType(dt) ? 1 : 0;
   typeQueue.push(&dt);
-  
+
   while (!typeQueue.empty())
   {
-    DIType* curDt = typeQueue.front();
+    DIType *curDt = typeQueue.front();
     typeQueue.pop();
-    DIType* lowestDt = getLowestDIType(*curDt);
+    DIType *lowestDt = getLowestDIType(*curDt);
 
     if (lowestDt == nullptr || !isStructType(*lowestDt))
       continue;
@@ -662,11 +696,10 @@ unsigned pdg::dbgutils::computeDeepCopyFields(DIType &dt, bool onlyCountPointer)
   return fieldNum;
 }
 
-
 unsigned pdg::dbgutils::computeStructTypeStorageSize(DIType &dt, unsigned depth)
 {
-  std::queue<DIType*> typeQueue;
-  std::unordered_set<DIType*> seenTypes;
+  std::queue<DIType *> typeQueue;
+  std::unordered_set<DIType *> seenTypes;
   unsigned storageSize = 0;
   typeQueue.push(&dt);
 
@@ -699,6 +732,6 @@ unsigned pdg::dbgutils::computeStructFieldNum(llvm::DIType &dt)
 {
   if (!isStructType(dt))
     return -1;
-  auto diNodeArr = dyn_cast<DICompositeType>(&dt)->getElements(); 
+  auto diNodeArr = dyn_cast<DICompositeType>(&dt)->getElements();
   return diNodeArr.size();
 }
